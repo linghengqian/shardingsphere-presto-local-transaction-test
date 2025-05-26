@@ -14,18 +14,13 @@ import org.testcontainers.utility.MountableFile;
 import javax.sql.DataSource;
 import java.sql.*;
 import java.time.Duration;
-import java.util.stream.Stream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.nullValue;
 
-@SuppressWarnings({"SqlNoDataSourceInspection", "resource"})
+@SuppressWarnings({"resource", "SqlNoDataSourceInspection"})
 @Testcontainers
-public class ShardingSphereTest {
-    private final String systemPropKeyPrefix = "fixture.test.yaml.database.presto.";
+public class PureTest {
     private String baseJdbcUrl;
-
     @Container
     private final GenericContainer<?> container = new GenericContainer<>("prestodb/presto:0.292")
             .withExposedPorts(8080)
@@ -35,16 +30,10 @@ public class ShardingSphereTest {
             .waitingFor(Wait.forHttp("/v1/info/state").forPort(8080).forResponsePredicate("\"ACTIVE\""::equals));
 
     @Test
-    void assertShardingInLocalTransactions() throws SQLException {
-        assertThat(System.getProperty(systemPropKeyPrefix + "ds0.jdbc-url"), is(nullValue()));
-        assertThat(System.getProperty(systemPropKeyPrefix + "ds1.jdbc-url"), is(nullValue()));
-        assertThat(System.getProperty(systemPropKeyPrefix + "ds2.jdbc-url"), is(nullValue()));
+    void assertLocalTransactions() throws SQLException {
         baseJdbcUrl = "jdbc:presto://localhost:" + container.getMappedPort(8080) + "/iceberg";
         DataSource logicDataSource = createDataSource();
         this.assertRollbackWithTransactions(logicDataSource);
-        System.clearProperty(systemPropKeyPrefix + "ds0.jdbc-url");
-        System.clearProperty(systemPropKeyPrefix + "ds1.jdbc-url");
-        System.clearProperty(systemPropKeyPrefix + "ds2.jdbc-url");
     }
 
     private DataSource createDataSource() throws SQLException {
@@ -55,31 +44,25 @@ public class ShardingSphereTest {
         try (Connection con = DriverManager.getConnection(baseJdbcUrl, "test", null);
              Statement stmt = con.createStatement()) {
             stmt.execute("CREATE SCHEMA iceberg.demo_ds_0");
-            stmt.execute("CREATE SCHEMA iceberg.demo_ds_1");
-            stmt.execute("CREATE SCHEMA iceberg.demo_ds_2");
         }
-        Stream.of("demo_ds_0", "demo_ds_1", "demo_ds_2").forEach(schemaName -> {
-            try (Connection con = DriverManager.getConnection(baseJdbcUrl + "/" + schemaName, "test", null);
-                 Statement stmt = con.createStatement()) {
-                stmt.execute("""
-                        CREATE TABLE IF NOT EXISTS t_order (
-                            order_id BIGINT NOT NULL,
-                            order_type INTEGER,
-                            user_id INTEGER NOT NULL,
-                            address_id BIGINT NOT NULL,
-                            status VARCHAR(50)
-                        )""");
-                stmt.execute("truncate table t_order");
-            } catch (SQLException ex) {
-                throw new RuntimeException(ex);
-            }
-        });
+        try (Connection con = DriverManager.getConnection(baseJdbcUrl + "/demo_ds_0", "test", null);
+             Statement stmt = con.createStatement()) {
+            stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS t_order (
+                        order_id BIGINT NOT NULL,
+                        order_type INTEGER,
+                        user_id INTEGER NOT NULL,
+                        address_id BIGINT NOT NULL,
+                        status VARCHAR(50)
+                    )""");
+            stmt.execute("truncate table t_order");
+        } catch (SQLException ex) {
+            throw new RuntimeException(ex);
+        }
         HikariConfig config = new HikariConfig();
-        config.setDriverClassName("org.apache.shardingsphere.driver.ShardingSphereDriver");
-        config.setJdbcUrl("jdbc:shardingsphere:classpath:demo.yaml?placeholder-type=system_props");
-        System.setProperty(systemPropKeyPrefix + "ds0.jdbc-url", baseJdbcUrl + "/demo_ds_0");
-        System.setProperty(systemPropKeyPrefix + "ds1.jdbc-url", baseJdbcUrl + "/demo_ds_1");
-        System.setProperty(systemPropKeyPrefix + "ds2.jdbc-url", baseJdbcUrl + "/demo_ds_2");
+        config.setDriverClassName("com.facebook.presto.jdbc.PrestoDriver");
+        config.setJdbcUrl(baseJdbcUrl + "/demo_ds_0");
+        config.setUsername("test");
         return new HikariDataSource(config);
     }
 
