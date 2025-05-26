@@ -1,0 +1,36 @@
+dataSources:
+  ds_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.facebook.presto.jdbc.PrestoDriver
+    jdbcUrl: $${fixture.test.yaml.database.presto.ds0.jdbc-url::}
+    username: test
+  ds_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.facebook.presto.jdbc.PrestoDriver
+    jdbcUrl: $${fixture.test.yaml.database.presto.ds1.jdbc-url::}
+    username: test
+  ds_2:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.facebook.presto.jdbc.PrestoDriver
+    jdbcUrl: $${fixture.test.yaml.database.presto.ds2.jdbc-url::}
+    username: test
+rules:
+  - !SHARDING
+    tables:
+      t_order:
+        actualDataNodes: <LITERAL>ds_0.t_order, ds_1.t_order, ds_2.t_order
+        keyGenerateStrategy:
+          column: order_id
+          keyGeneratorName: snowflake
+    defaultDatabaseStrategy:
+      standard:
+        shardingColumn: user_id
+        shardingAlgorithmName: inline
+    shardingAlgorithms:
+      inline:
+        type: INLINE
+        props:
+          algorithm-expression: ds_${user_id % 2}
+    keyGenerators:
+      snowflake:
+        type: SNOWFLAKE
